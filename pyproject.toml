@@ -1,0 +1,25 @@
+[build-system]
+requires = ["uv_build>=0.11.2,<0.12"]
+build-backend = "uv_build"
+
+[project]
+name = "aifw"
+version = "0.1.0"
+description = "Terminal-first AI orchestration workflow for multi-repository software work"
+requires-python = ">=3.12"
+dependencies = ["pyyaml>=6.0"]
+
+[project.scripts]
+aifw = "aifw.cli:main"
+
+[tool.uv.build-backend]
+module-root = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true

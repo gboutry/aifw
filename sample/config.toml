@@ -1,0 +1,52 @@
+# aifw configuration
+# Place at: ~/.config/aifw/config.toml
+# All values shown are the defaults.
+
+# --- Mission storage ---
+# mission_root = "~/.local/share/aifw/missions"
+
+# --- tmux ---
+# tmux_bin = "tmux"
+# tmux_session_prefix = "aifw"
+
+# --- LXD ---
+# Base image alias (built by base-container.sh)
+# lxd_base_image_alias = "worktainer-base"
+
+# Path to your base-container.sh script (for auto-building the base image)
+# lxd_base_container_script = "/path/to/base-container.sh"
+
+# Path to your work-it.sh script (not used directly; aifw has its own adapter)
+# lxd_bootstrap_script = ""
+
+# Container naming prefix
+# lxd_container_prefix = "aifw"
+
+# User inside the container
+# lxd_container_user = "ubuntu"
+# lxd_container_uid = 1000
+
+# APT proxy (set if you use one, like squid-deb-proxy)
+# lxd_apt_proxy = "http://10.206.53.1:3128"
+
+# --- Claude Code ---
+# Binary name inside the container
+# claude_bin = "claude"
+
+# Host paths for Claude state
+# claude_config_host_path = "~/.claude"
+# claude_auth_host_path = "~/.claude.json"
+
+# Container paths (must be under the container user's home)
+# claude_config_container_path = "/home/ubuntu/.claude"
+# claude_auth_container_path = "/home/ubuntu/.claude.json"
+
+# --- Repositories ---
+# repo_strategy = "checkout"  # or "worktree"
+
+# --- Logging ---
+# log_level = "INFO"
+
+# --- Overview ---
+# Refresh interval for the tmux overview pane (seconds)
+# overview_interval = 5
