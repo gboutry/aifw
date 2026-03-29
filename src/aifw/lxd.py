@@ -136,14 +136,20 @@ def base_image_exists(alias: str) -> bool:
     return False
 
 
+_BUNDLED_BASE_SCRIPT = Path(__file__).parent.parent.parent / "scripts" / "base-container.sh"
+
+
 def build_base_image(config: Config) -> None:
-    """Build the base image using the configured script."""
+    """Build the base image using the configured or bundled script."""
     script = config.lxd_base_container_script
     if not script:
-        raise LXDError(
-            "No base image found and lxd_base_container_script is not configured. "
-            "Either build the base image manually or set the config."
-        )
+        if _BUNDLED_BASE_SCRIPT.exists():
+            script = str(_BUNDLED_BASE_SCRIPT)
+        else:
+            raise LXDError(
+                "No base image found and lxd_base_container_script is not configured. "
+                "Either build the base image manually or set the config."
+            )
     logger.info("Building base image using %s ...", script)
     try:
         subprocess.run(
@@ -152,6 +158,7 @@ def build_base_image(config: Config) -> None:
             env={
                 **dict(__import__("os").environ),
                 "PUBLISHED_NAME": config.lxd_base_image_alias,
+                **({"APT_PROXY": config.lxd_apt_proxy} if config.lxd_apt_proxy else {}),
             },
             timeout=600,
         )
