@@ -56,12 +56,15 @@ lxc init "${BASE_IMAGE}" "${CONTAINER_NAME}"
 lxc config set "${CONTAINER_NAME}" cloud-init.user-data "${cloud_init}"
 lxc start "${CONTAINER_NAME}"
 
-cloud_init_status="$(lxc exec "${CONTAINER_NAME}" -- cloud-init status --wait 2>&1 || true)"
-printf '%s\n' "${cloud_init_status}"
-if ! printf '%s\n' "${cloud_init_status}" | grep -q "status: done"; then
-  echo "cloud-init did not reach done state." >&2
-  exit 1
-fi
+# Wait for cloud-init. Exit code 2 = recoverable warnings (OK on cloud-init 25.3+).
+lxc exec "${CONTAINER_NAME}" -- cloud-init status --wait || {
+  rc=$?
+  if [ "${rc}" -ne 2 ]; then
+    echo "cloud-init failed (exit ${rc})." >&2
+    exit 1
+  fi
+  echo "cloud-init finished with recoverable warnings (exit 2), continuing."
+}
 
 echo "Installing uv and Claude Code..."
 cat > /tmp/aifw-setup.sh <<'SETUP'
@@ -76,7 +79,7 @@ rm /tmp/uv-install.sh
 # Install Claude Code native binary for the ubuntu user
 # The installer puts it at ~/.local/bin/claude with the actual binary
 # under ~/.local/share/claude/versions/<version>
-su - ubuntu -c 'curl -fsSL https://claude.ai/install.sh | sh'
+su - ubuntu -c 'curl -fsSL https://claude.ai/install.sh | bash'
 
 # Ensure ~/.local/bin is in PATH for the ubuntu user
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> /home/ubuntu/.bashrc

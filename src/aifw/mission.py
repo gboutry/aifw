@@ -143,11 +143,11 @@ class Mission:
         # Create initial .ai files
         self._init_ai_files(repo_paths, spec_content=spec_content)
 
-        # Place CLAUDE.md files for orchestrator and workers
-        self._place_claude_md_files(repo_paths)
-
-        # Clone repos locally
+        # Clone repos locally (before placing CLAUDE.md so clone dirs exist)
         self._clone_repos(repo_paths, repo_branches or {})
+
+        # Place CLAUDE.md files for orchestrator and workers (uses clone paths)
+        self._place_claude_md_files(repo_paths)
 
         # Write runtime markers
         (self.runtime_dir / "tmux-session").write_text(self.tmux_session)
@@ -250,8 +250,18 @@ tasks: []
     def _place_claude_md_files(self, repo_paths: list[str]) -> None:
         """Place CLAUDE.md files so orchestrator and workers get their skills."""
         templates_dir = Path(__file__).parent.parent.parent / "templates"
-        repo_names = [Path(rp).name for rp in repo_paths]
-        repo_list = "\n".join(f"- **{Path(rp).name}**: `{rp}`" for rp in repo_paths)
+
+        # Build repo info using clone paths (repos are already cloned at this point)
+        clones = self.clone_paths()
+        from aifw.git import current_branch
+        repo_list_lines = []
+        for name, clone_path in clones.items():
+            try:
+                branch = current_branch(clone_path)
+            except Exception:
+                branch = "unknown"
+            repo_list_lines.append(f"- **{name}**: `{clone_path}` (branch: `{branch}`)")
+        repo_list = "\n".join(repo_list_lines) if repo_list_lines else "(no repos)"
 
         # Orchestrator CLAUDE.md goes in .ai/ (where orchestrator Claude starts)
         orch_template = templates_dir / "orchestrator-CLAUDE.md"
@@ -259,21 +269,29 @@ tasks: []
             content = orch_template.read_text()
             content = content.replace("${mission_id}", self.mission_id)
             content = content.replace("${repo_list}", repo_list)
+            content = content.replace("${mission_dir}", str(self.root))
             (self.ai_dir / "CLAUDE.md").write_text(content)
 
-        # Worker CLAUDE.md goes in each repo dir
+        # Worker CLAUDE.md goes in each clone dir, committed to keep tree clean
         worker_template = templates_dir / "worker-CLAUDE.md"
         if worker_template.exists():
             worker_content = worker_template.read_text()
             worker_content = worker_content.replace("${mission_id}", self.mission_id)
-            for rp in repo_paths:
-                repo_dir = Path(rp)
-                if not repo_dir.is_dir():
+            for clone_path in clones.values():
+                clone_dir = Path(clone_path)
+                if not clone_dir.is_dir():
                     continue
-                claude_md = repo_dir / "CLAUDE.md"
-                # Don't overwrite existing CLAUDE.md files in repos
+                claude_md = clone_dir / "CLAUDE.md"
                 if not claude_md.exists():
                     claude_md.write_text(worker_content)
+                    # Commit so the working tree stays clean
+                    from aifw.git import _run_git
+                    _run_git(["add", "CLAUDE.md"], cwd=clone_path)
+                    _run_git(
+                        ["-c", "user.name=aifw", "-c", "user.email=aifw@local",
+                         "commit", "-m", "aifw: add worker CLAUDE.md"],
+                        cwd=clone_path,
+                    )
 
     def _clone_repos(self, repo_paths: list[str], repo_branches: dict[str, str]) -> None:
         """Clone each repo into the mission's repos/ directory.

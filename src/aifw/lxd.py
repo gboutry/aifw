@@ -233,7 +233,10 @@ def _wait_cloud_init(name: str, timeout: int = 300) -> None:
         check=False,
         timeout=timeout,
     )
-    if result.returncode != 0:
+    if result.returncode == 2:
+        # cloud-init 25.3+: exit 2 = recoverable warnings, not a real failure
+        logger.info("cloud-init finished with recoverable warnings in %s", name)
+    elif result.returncode != 0:
         logger.warning("cloud-init may not have completed cleanly: %s", result.stderr)
 
 
