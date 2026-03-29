@@ -114,7 +114,12 @@ def run_dispatch_loop(
                     # New brief — spawn worker if no window exists
                     if not has_window:
                         repo = _read_worker_repo(ai_dir, worker_name)
-                        cwd = repo or str(mission_dir)
+                        if not repo:
+                            # Status file may not be written yet — skip this cycle
+                            ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+                            print(f"[dispatch {ts}] Brief found for {worker_name} but no status file yet, waiting...")
+                            continue
+                        cwd = repo
 
                         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
                         print(f"[dispatch {ts}] New worker: {worker_name} → spawning session (cwd={cwd})")
@@ -154,9 +159,12 @@ def run_dispatch_loop(
                         events.log(WORKER, "dispatch", f"Re-read prompt sent to: {worker_name}")
                     else:
                         # Window gone but brief updated — re-spawn
-                        print(f"[dispatch {ts}] Brief updated, window gone: {worker_name} → re-spawning")
                         repo = _read_worker_repo(ai_dir, worker_name)
-                        cwd = repo or str(mission_dir)
+                        if not repo:
+                            print(f"[dispatch {ts}] Brief updated for {worker_name} but no status file, skipping")
+                            continue
+                        print(f"[dispatch {ts}] Brief updated, window gone: {worker_name} → re-spawning")
+                        cwd = repo
 
                         model = _read_worker_model(ai_dir, worker_name)
                         claude_args = f"--model {model}" if model else ""
