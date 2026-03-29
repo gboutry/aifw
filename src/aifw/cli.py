@@ -56,6 +56,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # destroy
     p_destroy = sub.add_parser("destroy", help="Stop container and clean up mission")
     p_destroy.add_argument("--keep-files", action="store_true", help="Keep mission directory")
+    p_destroy.add_argument("-f", "--force", action="store_true", help="Destroy even with unpushed work")
 
     # assign
     p_assign = sub.add_parser("assign", help="Assign a task to a worker")
@@ -101,17 +102,18 @@ def cmd_start(args: argparse.Namespace) -> None:
 
     # Provision container
     print(f"Provisioning container {mission.container_name} ...")
-    mission.provision_container(repo_paths)
+    mission.provision_container()
 
     # Set up tmux control plane
     print(f"Setting up tmux session {mission.tmux_session} ...")
     from aifw.tmux import setup_control_plane
+    clone_paths = list(mission.clone_paths().values())
     setup_control_plane(
         config,
         mission.tmux_session,
         mission.container_name,
         str(mission.root),
-        repo_paths,
+        clone_paths,
     )
 
     print(f"\nMission {mission_id} is ready.")
@@ -188,15 +190,29 @@ def cmd_destroy(args: argparse.Namespace) -> None:
         print("No active mission found.", file=sys.stderr)
         sys.exit(1)
 
+    # Check for unpushed work unless --force
+    if not args.force and not args.keep_files:
+        statuses = mission.check_unpushed()
+        has_issues = any(s.dirty or s.unpushed for s in statuses.values())
+        if has_issues:
+            print(f"Cannot destroy mission {mission.mission_id}: unpushed work found\n")
+            for name, s in statuses.items():
+                if s.dirty or s.unpushed:
+                    print(f"  {name}:")
+                    if s.unpushed:
+                        print(f"    {len(s.unpushed)} unpushed branch(es): {', '.join(s.unpushed)}")
+                    if s.dirty:
+                        print(f"    Uncommitted changes")
+                else:
+                    print(f"  {name}: clean")
+            print(f"\nUse --force to destroy anyway.")
+            sys.exit(1)
+
     print(f"Destroying mission {mission.mission_id} ...")
 
-    # Kill tmux session
     kill_session(config, mission.tmux_session)
-
-    # Destroy container
     mission.destroy()
 
-    # Remove mission directory
     if not args.keep_files:
         import shutil
         shutil.rmtree(mission.root, ignore_errors=True)

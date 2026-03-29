@@ -32,7 +32,8 @@ def test_show_status_no_mission(mock_session, mock_container, tmp_path: Path, ca
 @mock.patch("aifw.lxd.get_container_info", return_value=None)
 @mock.patch("aifw.tmux.session_exists", return_value=False)
 @mock.patch("aifw.tmux.list_windows", return_value=[])
-def test_show_status_with_mission(mock_windows, mock_session, mock_container, tmp_path: Path, capsys) -> None:
+@mock.patch("aifw.mission.Mission._clone_repos")
+def test_show_status_with_mission(mock_clone, mock_windows, mock_session, mock_container, tmp_path: Path, capsys) -> None:
     config = _make_config(tmp_path)
     mission = Mission("test-s01", config)
     mission.init_directory(["/tmp/repo-a"])

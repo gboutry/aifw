@@ -150,10 +150,13 @@ def assign_worker(
     else:
         task_description = task
 
-    # Determine repo path
+    # Determine repo path — use clone path, not original
     if repo_path is None:
-        repos = mission.repo_paths()
-        repo_path = repos[0] if repos else str(mission.root)
+        clones = mission.clone_paths()
+        if clones:
+            repo_path = next(iter(clones.values()))
+        else:
+            repo_path = str(mission.root)
 
     # Render and write brief
     brief_content = render_brief(worker_name, mission, repo_path, task_description)

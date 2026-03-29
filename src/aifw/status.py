@@ -62,12 +62,23 @@ def show_status(config: Config, mission_id: str | None = None) -> None:
     out.write("\n")
 
     # Repos
-    repos = mission.repo_paths()
-    out.write(f"\n  Repositories ({len(repos)}):\n")
-    for rp in repos:
-        name = Path(rp).name
-        exists = Path(rp).exists()
-        out.write(f"    {'✓' if exists else '✗'} {name:<30s} {rp}\n")
+    clones = mission.clone_paths()
+    origins = mission.repo_paths()
+    out.write(f"\n  Repositories ({len(origins)}):\n")
+    if clones:
+        from aifw.git import repo_status
+        for name, clone_path in clones.items():
+            try:
+                rs = repo_status(clone_path)
+                dirty_mark = " [dirty]" if rs.dirty else ""
+                unpushed_mark = f" [{len(rs.unpushed)} unpushed]" if rs.unpushed else ""
+                out.write(f"    {rs.branch:<12s} {name:<20s}{dirty_mark}{unpushed_mark}\n")
+            except Exception:
+                out.write(f"    ?            {name:<20s} (git error)\n")
+    else:
+        for rp in origins:
+            name = Path(rp).name
+            out.write(f"    -            {name:<20s} (not cloned)\n")
 
     # Workers
     workers = list_workers(mission)

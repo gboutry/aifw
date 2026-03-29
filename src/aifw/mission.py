@@ -11,7 +11,7 @@ Mission directory layout:
   ~/.local/share/aifw/missions/<mission-id>/
   ├── control/
   │   └── mission.toml          # mission metadata
-  ├── repos/                    # symlinks to actual repo paths
+  ├── repos/                    # local clones of source repos
   ├── logs/
   │   ├── aifw.log
   │   └── workers/
@@ -39,6 +39,7 @@ from pathlib import Path
 
 from aifw.config import Config
 from aifw.events import CONTAINER, MISSION, EventLog
+from aifw.git import clone_local, repo_status, RepoStatus
 from aifw.lxd import DiskMount, create_container, destroy_container, stop_container
 
 
@@ -139,12 +140,8 @@ class Mission:
         # Place CLAUDE.md files for orchestrator and workers
         self._place_claude_md_files(repo_paths)
 
-        # Create repo symlinks
-        for rp in repo_paths:
-            p = Path(rp).resolve()
-            link = self.repos_dir / p.name
-            if not link.exists():
-                link.symlink_to(p)
+        # Clone repos locally
+        self._clone_repos(repo_paths)
 
         # Write runtime markers
         (self.runtime_dir / "tmux-session").write_text(self.tmux_session)
@@ -155,6 +152,9 @@ class Mission:
     def _write_mission_toml(self, repo_paths: list[str]) -> None:
         ts = datetime.now(timezone.utc).isoformat()
         repos_toml = "\n".join(f'  "{rp}",' for rp in repo_paths)
+        repos_table = "\n".join(
+            f'{Path(rp).name} = "{rp}"' for rp in repo_paths
+        )
         content = f"""\
 # aifw mission metadata
 # Generated: {ts}
@@ -165,9 +165,14 @@ state = "active"
 container = "{self.container_name}"
 tmux_session = "{self.tmux_session}"
 
+# Original repo paths (for reference / re-cloning)
 repos = [
 {repos_toml}
 ]
+
+# Mapping: clone name -> original path
+[repo_origins]
+{repos_table}
 """
         self.mission_toml_path.write_text(content)
 
@@ -261,6 +266,15 @@ tasks: []
                 if not claude_md.exists():
                     claude_md.write_text(worker_content)
 
+    def _clone_repos(self, repo_paths: list[str]) -> None:
+        """Clone each repo into the mission's repos/ directory."""
+        for rp in repo_paths:
+            p = Path(rp).resolve()
+            dest = self.repos_dir / p.name
+            if dest.exists():
+                continue
+            clone_local(str(p), str(dest))
+
     # --- Event log access ---
 
     def ensure_events(self) -> EventLog:
@@ -273,25 +287,20 @@ tasks: []
 
     # --- Container lifecycle ---
 
-    def build_mounts(self, repo_paths: list[str]) -> list[DiskMount]:
-        """Build the list of disk mounts for the container."""
+    def build_mounts(self) -> list[DiskMount]:
+        """Build the list of disk mounts for the container.
+
+        Only the mission directory and Claude state are mounted.
+        Repos are cloned under the mission dir, so they're included automatically.
+        """
         mounts: list[DiskMount] = []
 
-        # Mount the mission directory
+        # Mount the mission directory (contains cloned repos)
         mounts.append(DiskMount(
             name="mission",
             source=str(self.root),
             path=str(self.root),
         ))
-
-        # Mount each repo
-        for rp in repo_paths:
-            p = Path(rp).resolve()
-            mounts.append(DiskMount(
-                name=f"repo-{p.name}",
-                source=str(p),
-                path=str(p),  # same path in container (per user's requirement)
-            ))
 
         # Claude state mounts — mapped to /home/ubuntu/ in the container
         # so Claude Code (running as ubuntu) finds ~/.claude correctly.
@@ -309,9 +318,9 @@ tasks: []
 
         return mounts
 
-    def provision_container(self, repo_paths: list[str]) -> None:
+    def provision_container(self) -> None:
         """Create and start the mission container."""
-        mounts = self.build_mounts(repo_paths)
+        mounts = self.build_mounts()
         create_container(self.container_name, self.config, mounts)
         self.ensure_events().log(CONTAINER, "aifw", f"Container {self.container_name} provisioned")
 
@@ -341,6 +350,23 @@ tasks: []
         with open(self.mission_toml_path, "rb") as f:
             data = tomllib.load(f)
         return data.get("repos", [])
+
+    def clone_paths(self) -> dict[str, str]:
+        """Return {repo_name: clone_path} for all cloned repos."""
+        if not self.repos_dir.exists():
+            return {}
+        return {
+            p.name: str(p)
+            for p in sorted(self.repos_dir.iterdir())
+            if p.is_dir() and (p / ".git").exists()
+        }
+
+    def check_unpushed(self) -> dict[str, RepoStatus]:
+        """Check all cloned repos for unpushed work."""
+        result = {}
+        for name, path in self.clone_paths().items():
+            result[name] = repo_status(path)
+        return result
 
     def worker_names(self) -> list[str]:
         """List existing worker names from .ai/workers/."""

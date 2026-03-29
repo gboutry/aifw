@@ -257,7 +257,7 @@ def setup_control_plane(
     create_window(config, session_name, "integration", start_dir=mission_dir)
     integration_shell = _lxc_exec_string(
         container_name, config.lxd_container_user,
-        cwd=mission_dir,
+        cwd=f"{mission_dir}/repos",
         command="bash -l",
     )
     send_command(config, session_name, "integration", integration_shell)
