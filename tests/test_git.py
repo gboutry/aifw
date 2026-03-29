@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from aifw.git import clone_local, GitError, has_uncommitted, has_unpushed, repo_status, RepoStatus
+from aifw.git import clone_local, current_branch, GitError, has_uncommitted, has_unpushed, repo_status, RepoStatus, push_branch, PushResult
 
 
 def _init_repo(path: Path, *, commit: bool = True) -> Path:
@@ -133,3 +133,69 @@ def test_clone_local_without_branch_stays_on_default(tmp_path: Path) -> None:
         capture_output=True, text=True, check=True,
     )
     assert result.stdout.strip() in ("main", "master")
+
+
+def test_push_branch_up_to_date(tmp_path: Path) -> None:
+    origin = _init_repo(tmp_path / "origin-push1")
+    dest = tmp_path / "clone-push1"
+    clone_local(str(origin), str(dest))
+
+    result = push_branch(str(dest), "main")
+    assert isinstance(result, PushResult)
+    assert result.up_to_date is True
+    assert result.pushed == 0
+    assert result.error is None
+
+
+def test_push_branch_with_commits(tmp_path: Path) -> None:
+    origin = _init_repo(tmp_path / "origin-push2")
+    subprocess.run(
+        ["git", "-C", str(origin), "config", "receive.denyCurrentBranch", "ignore"],
+        check=True, capture_output=True,
+    )
+    dest = tmp_path / "clone-push2"
+    clone_local(str(origin), str(dest))
+
+    (dest / "new.txt").write_text("new")
+    subprocess.run(["git", "-C", str(dest), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(dest), "commit", "-m", "local"], check=True, capture_output=True)
+
+    branch = current_branch(str(dest))
+    result = push_branch(str(dest), branch)
+    assert result.up_to_date is False
+    assert result.pushed >= 1
+    assert result.error is None
+
+
+def test_push_branch_dry_run(tmp_path: Path) -> None:
+    origin = _init_repo(tmp_path / "origin-push3")
+    dest = tmp_path / "clone-push3"
+    clone_local(str(origin), str(dest))
+
+    (dest / "dry.txt").write_text("dry")
+    subprocess.run(["git", "-C", str(dest), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(dest), "commit", "-m", "dry"], check=True, capture_output=True)
+
+    branch = current_branch(str(dest))
+    result = push_branch(str(dest), branch, dry_run=True)
+    assert result.error is None
+
+    origin_log = subprocess.run(
+        ["git", "-C", str(origin), "log", "--oneline"],
+        capture_output=True, text=True, check=True,
+    )
+    assert len(origin_log.stdout.strip().splitlines()) == 1
+
+
+def test_push_branch_new_branch(tmp_path: Path) -> None:
+    origin = _init_repo(tmp_path / "origin-push4")
+    dest = tmp_path / "clone-push4"
+    clone_local(str(origin), str(dest), branch="mission/test-push")
+
+    (dest / "feat.txt").write_text("feat")
+    subprocess.run(["git", "-C", str(dest), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(dest), "commit", "-m", "feat"], check=True, capture_output=True)
+
+    result = push_branch(str(dest), "mission/test-push")
+    assert result.error is None
+    assert result.pushed >= 1

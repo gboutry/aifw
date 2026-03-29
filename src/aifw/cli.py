@@ -10,6 +10,10 @@ Subcommands:
   tail <worker>                Stream worker status and events
   doctor                       Run environment health checks
   list                         List all missions
+  sync                         Push mission branches to origin repos
+  kill <worker>                Kill a worker's tmux window
+  restart <worker>             Kill and re-launch a worker from its existing brief
+  log <worker>                 Show a worker's Claude Code conversation
 """
 
 from __future__ import annotations
@@ -77,6 +81,24 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # list
     sub.add_parser("list", help="List all missions")
+
+    # sync
+    p_sync = sub.add_parser("sync", help="Push mission branches to origin repos")
+    p_sync.add_argument("--dry-run", action="store_true", help="Show what would be pushed without pushing")
+
+    # kill
+    p_kill = sub.add_parser("kill", help="Kill a worker's tmux window")
+    p_kill.add_argument("worker", help="Worker name")
+
+    # restart
+    p_restart = sub.add_parser("restart", help="Kill and re-launch a worker from its existing brief")
+    p_restart.add_argument("worker", help="Worker name")
+
+    # log
+    p_log = sub.add_parser("log", help="Show a worker's Claude Code conversation")
+    p_log.add_argument("worker", help="Worker name (or 'orchestrator')")
+    p_log.add_argument("--lines", "-n", type=int, default=50, help="Number of lines to show (default: 50)")
+    p_log.add_argument("-f", "--follow", action="store_true", help="Follow mode (like tail -f)")
 
     return parser
 
@@ -306,6 +328,191 @@ def cmd_list(args: argparse.Namespace) -> None:
     print(f"{'─' * 60}\n")
 
 
+def cmd_sync(args: argparse.Namespace) -> None:
+    config = load_config(args.config)
+    setup_stderr_logging(config.log_level)
+    from aifw.mission import Mission, find_current_mission
+    from aifw.git import push_branch, current_branch
+
+    if args.mission:
+        mission = Mission(args.mission, config)
+    else:
+        mission = find_current_mission(config)
+
+    if mission is None or not mission.exists():
+        print("No active mission found.", file=sys.stderr)
+        sys.exit(1)
+
+    clones = mission.clone_paths()
+    if not clones:
+        print("No cloned repos to sync.")
+        return
+
+    action = "Dry-run sync" if args.dry_run else "Syncing"
+    print(f"{action} mission {mission.mission_id} ...\n")
+
+    synced = 0
+    failed = 0
+    for name, clone_path in clones.items():
+        branch = current_branch(clone_path)
+        result = push_branch(clone_path, branch, dry_run=args.dry_run)
+        if result.error:
+            print(f"  {name}:  FAILED — {result.error}")
+            failed += 1
+        elif result.up_to_date:
+            print(f"  {name}:  already up to date")
+            synced += 1
+        else:
+            print(f"  {name}:  pushed {result.pushed} commit(s) to {branch}")
+            synced += 1
+
+    print(f"\n{synced} synced, {failed} failed.")
+
+
+def cmd_kill(args: argparse.Namespace) -> None:
+    config = load_config(args.config)
+    setup_stderr_logging(config.log_level)
+    from aifw.mission import Mission, find_current_mission
+    from aifw.tmux import kill_window
+
+    if args.mission:
+        mission = Mission(args.mission, config)
+    else:
+        mission = find_current_mission(config)
+
+    if mission is None or not mission.exists():
+        print("No active mission found.", file=sys.stderr)
+        sys.exit(1)
+
+    worker_name = args.worker
+    window_name = f"w-{worker_name}"
+
+    kill_window(config, mission.tmux_session, window_name)
+
+    import json
+    from datetime import datetime, timezone
+    status_path = mission.ai_dir / "status" / f"{worker_name}.json"
+    if status_path.exists():
+        data = json.loads(status_path.read_text())
+        data["status"] = "error"
+        data["summary"] = "Killed by operator"
+        data["updated"] = datetime.now(timezone.utc).isoformat()
+        status_path.write_text(json.dumps(data, indent=2) + "\n")
+
+    mission.ensure_events().log("worker", "aifw", f"Killed worker: {worker_name}")
+    print(f"Killed worker '{worker_name}'")
+
+
+def cmd_restart(args: argparse.Namespace) -> None:
+    config = load_config(args.config)
+    setup_stderr_logging(config.log_level)
+    from aifw.mission import Mission, find_current_mission
+    from aifw.tmux import kill_window
+    from aifw.claude import launch_worker_session, build_worker_prompt
+
+    if args.mission:
+        mission = Mission(args.mission, config)
+    else:
+        mission = find_current_mission(config)
+
+    if mission is None or not mission.exists():
+        print("No active mission found.", file=sys.stderr)
+        sys.exit(1)
+
+    worker_name = args.worker
+    window_name = f"w-{worker_name}"
+    brief_path = mission.ai_dir / "workers" / f"{worker_name}.md"
+    status_path = mission.ai_dir / "status" / f"{worker_name}.json"
+
+    if not brief_path.exists():
+        print(f"Error: no brief found for worker '{worker_name}'", file=sys.stderr)
+        sys.exit(1)
+
+    import json
+    from datetime import datetime, timezone
+    model = ""
+    repo = str(mission.root)
+    if status_path.exists():
+        data = json.loads(status_path.read_text())
+        model = data.get("model", "")
+        repo = data.get("repo", str(mission.root))
+
+    kill_window(config, mission.tmux_session, window_name)
+
+    status_data = {
+        "worker": worker_name,
+        "status": "ready",
+        "updated": datetime.now(timezone.utc).isoformat(),
+        "summary": "Restarted by operator",
+        "blockers": [],
+        "repo": repo,
+        "model": model,
+    }
+    status_path.write_text(json.dumps(status_data, indent=2) + "\n")
+
+    prompt = build_worker_prompt(str(brief_path))
+    launch_worker_session(
+        config,
+        mission.tmux_session,
+        mission.container_name,
+        worker_name,
+        working_dir=repo,
+        initial_prompt=prompt,
+        model=model,
+    )
+
+    mission.ensure_events().log("worker", "aifw", f"Restarted worker: {worker_name}")
+    print(f"Restarted worker '{worker_name}' (model={model or 'default'})")
+
+
+def cmd_log(args: argparse.Namespace) -> None:
+    config = load_config(args.config)
+    from aifw.mission import Mission, find_current_mission
+    from aifw.tmux import capture_pane
+
+    if args.mission:
+        mission = Mission(args.mission, config)
+    else:
+        mission = find_current_mission(config)
+
+    if mission is None or not mission.exists():
+        print("No active mission found.", file=sys.stderr)
+        sys.exit(1)
+
+    worker_name = args.worker
+    window_name = "orchestrator" if worker_name == "orchestrator" else f"w-{worker_name}"
+
+    if not args.follow:
+        output = capture_pane(config, mission.tmux_session, window_name, lines=args.lines)
+        if output:
+            print(output, end="")
+        else:
+            print(f"No output from '{worker_name}' (window may not exist)")
+        return
+
+    import time
+    previous = ""
+    try:
+        while True:
+            current = capture_pane(config, mission.tmux_session, window_name, lines=args.lines)
+            if current != previous:
+                prev_lines = previous.splitlines()
+                curr_lines = current.splitlines()
+                if previous and curr_lines:
+                    new_count = len(curr_lines) - len(prev_lines)
+                    if new_count > 0:
+                        for line in curr_lines[-new_count:]:
+                            print(line)
+                    elif current != previous:
+                        print(current, end="")
+                else:
+                    print(current, end="")
+                previous = current
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+
+
 _COMMANDS = {
     "start": cmd_start,
     "status": cmd_status,
@@ -316,6 +523,10 @@ _COMMANDS = {
     "tail": cmd_tail,
     "doctor": cmd_doctor,
     "list": cmd_list,
+    "sync": cmd_sync,
+    "kill": cmd_kill,
+    "restart": cmd_restart,
+    "log": cmd_log,
 }
 
 

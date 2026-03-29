@@ -26,6 +26,15 @@ class RepoStatus:
     unpushed: list[str] = field(default_factory=list)
 
 
+@dataclass
+class PushResult:
+    """Result of a git push operation."""
+
+    pushed: int
+    up_to_date: bool
+    error: str | None = None
+
+
 def _run_git(
     args: list[str],
     *,
@@ -126,3 +135,37 @@ def repo_status(repo_path: str) -> RepoStatus:
         dirty=has_uncommitted(repo_path),
         unpushed=has_unpushed(repo_path),
     )
+
+
+def push_branch(repo_path: str, branch: str, *, dry_run: bool = False) -> PushResult:
+    """Push a branch to origin.
+
+    Returns a PushResult with the outcome.
+    """
+    args = ["push", "origin", branch]
+    if dry_run:
+        args.insert(1, "--dry-run")
+
+    # Count commits to push before pushing
+    remote_ref = f"origin/{branch}"
+    check_remote = _run_git(["rev-parse", "--verify", remote_ref], cwd=repo_path, check=False)
+
+    if check_remote.returncode == 0:
+        # Remote branch exists — count ahead commits
+        count_result = _run_git(
+            ["rev-list", "--count", f"{remote_ref}..{branch}"],
+            cwd=repo_path,
+        )
+        ahead = int(count_result.stdout.strip())
+        if ahead == 0:
+            return PushResult(pushed=0, up_to_date=True)
+    else:
+        # New branch — count all commits on it
+        count_result = _run_git(["rev-list", "--count", branch], cwd=repo_path)
+        ahead = int(count_result.stdout.strip())
+
+    try:
+        _run_git(args, cwd=repo_path)
+        return PushResult(pushed=ahead, up_to_date=False)
+    except GitError as exc:
+        return PushResult(pushed=0, up_to_date=False, error=str(exc))
