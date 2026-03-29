@@ -135,6 +135,29 @@ def test_clone_local_without_branch_stays_on_default(tmp_path: Path) -> None:
     assert result.stdout.strip() in ("main", "master")
 
 
+def test_clone_local_existing_branch(tmp_path: Path) -> None:
+    origin = _init_repo(tmp_path / "origin8")
+    # Create a branch in the origin
+    subprocess.run(
+        ["git", "-C", str(origin), "checkout", "-b", "feat/my-feature"],
+        check=True, capture_output=True,
+    )
+    (origin / "feature.txt").write_text("feature work")
+    subprocess.run(["git", "-C", str(origin), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(origin), "commit", "-m", "feature"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(origin), "checkout", "main"], check=True, capture_output=True)
+
+    dest = tmp_path / "clone8"
+    clone_local(str(origin), str(dest), branch="feat/my-feature", existing_branch=True)
+
+    result = subprocess.run(
+        ["git", "-C", str(dest), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True, check=True,
+    )
+    assert result.stdout.strip() == "feat/my-feature"
+    assert (dest / "feature.txt").exists()
+
+
 def test_push_branch_up_to_date(tmp_path: Path) -> None:
     origin = _init_repo(tmp_path / "origin-push1")
     dest = tmp_path / "clone-push1"

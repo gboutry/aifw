@@ -240,7 +240,7 @@ def setup_control_plane(
 
     # Orchestrator window: Claude Code in the container at mission .ai dir
     create_window(config, session_name, "orchestrator", start_dir=mission_dir)
-    orch_claude_cmd = config.claude_bin
+    orch_claude_cmd = f"{config.claude_bin} --dangerously-skip-permissions"
     orch_model = orchestrator_model or config.default_model
     if orch_model:
         orch_claude_cmd = f"{orch_claude_cmd} --model {orch_model}"
@@ -296,7 +296,7 @@ def create_worker_window(
 
     create_window(config, session_name, window_name)
 
-    claude_cmd = config.claude_bin
+    claude_cmd = f"{config.claude_bin} --dangerously-skip-permissions"
     if claude_args:
         claude_cmd = f"{claude_cmd} {claude_args}"
 

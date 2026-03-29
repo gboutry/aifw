@@ -109,7 +109,13 @@ class Mission:
 
     # --- Directory creation ---
 
-    def init_directory(self, repo_paths: list[str], *, spec_content: str | None = None) -> None:
+    def init_directory(
+        self,
+        repo_paths: list[str],
+        *,
+        spec_content: str | None = None,
+        repo_branches: dict[str, str] | None = None,
+    ) -> None:
         """Create the full mission directory tree."""
         for d in [
             self.control_dir,
@@ -141,7 +147,7 @@ class Mission:
         self._place_claude_md_files(repo_paths)
 
         # Clone repos locally
-        self._clone_repos(repo_paths)
+        self._clone_repos(repo_paths, repo_branches or {})
 
         # Write runtime markers
         (self.runtime_dir / "tmux-session").write_text(self.tmux_session)
@@ -269,15 +275,23 @@ tasks: []
                 if not claude_md.exists():
                     claude_md.write_text(worker_content)
 
-    def _clone_repos(self, repo_paths: list[str]) -> None:
-        """Clone each repo into the mission's repos/ directory."""
-        branch = f"mission/{self.mission_id}"
+    def _clone_repos(self, repo_paths: list[str], repo_branches: dict[str, str]) -> None:
+        """Clone each repo into the mission's repos/ directory.
+
+        repo_branches maps repo path -> existing branch name to checkout.
+        Repos not in repo_branches get a fresh mission/<id> branch.
+        """
+        mission_branch = f"mission/{self.mission_id}"
         for rp in repo_paths:
             p = Path(rp).resolve()
             dest = self.repos_dir / p.name
             if dest.exists():
                 continue
-            clone_local(str(p), str(dest), branch=branch)
+            override = repo_branches.get(rp)
+            if override:
+                clone_local(str(p), str(dest), branch=override, existing_branch=True)
+            else:
+                clone_local(str(p), str(dest), branch=mission_branch)
 
     # --- Event log access ---
 

@@ -228,6 +228,35 @@ def test_clones_on_mission_branch(tmp_path: Path) -> None:
     assert result.stdout.strip() == "mission/20260329-xyz1"
 
 
+def test_clone_with_existing_branch_override(tmp_path: Path) -> None:
+    config = _make_config(tmp_path)
+    repo_a = _init_git_repo(tmp_path / "repo-br")
+
+    # Create a feature branch in the origin
+    subprocess.run(
+        ["git", "-C", str(repo_a), "checkout", "-b", "feat/existing"],
+        check=True, capture_output=True,
+    )
+    (repo_a / "feat.txt").write_text("feat")
+    subprocess.run(["git", "-C", str(repo_a), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo_a), "commit", "-m", "feat"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo_a), "checkout", "main"], check=True, capture_output=True)
+
+    mission = Mission("test-branch-override", config)
+    mission.init_directory(
+        [str(repo_a)],
+        repo_branches={str(repo_a): "feat/existing"},
+    )
+
+    clone = mission.repos_dir / "repo-br"
+    result = subprocess.run(
+        ["git", "-C", str(clone), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True, check=True,
+    )
+    assert result.stdout.strip() == "feat/existing"
+    assert (clone / "feat.txt").exists()
+
+
 def test_init_directory_with_spec_content(tmp_path: Path) -> None:
     config = _make_config(tmp_path)
 

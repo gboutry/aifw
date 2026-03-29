@@ -139,13 +139,23 @@ def cmd_start(args: argparse.Namespace) -> None:
         if not args.repos:
             print("Error: repos are required for a new mission (or use --id to resume).", file=sys.stderr)
             sys.exit(1)
-        repo_paths = [str(Path(r).resolve()) for r in args.repos]
+        # Parse path@branch syntax
+        repo_paths = []
+        repo_branches: dict[str, str] = {}
+        for raw in args.repos:
+            if "@" in raw:
+                path_part, branch_part = raw.rsplit("@", 1)
+                rp = str(Path(path_part).resolve())
+                repo_branches[rp] = branch_part
+            else:
+                rp = str(Path(raw).resolve())
+            repo_paths.append(rp)
         for rp in repo_paths:
             if not Path(rp).is_dir():
                 print(f"Error: repository path does not exist: {rp}", file=sys.stderr)
                 sys.exit(1)
         print(f"Creating mission {mission_id} ...")
-        mission.init_directory(repo_paths, spec_content=spec_content)
+        mission.init_directory(repo_paths, spec_content=spec_content, repo_branches=repo_branches)
 
     # Provision container (idempotent)
     print(f"Provisioning container {mission.container_name} ...")
