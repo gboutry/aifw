@@ -109,7 +109,7 @@ class Mission:
 
     # --- Directory creation ---
 
-    def init_directory(self, repo_paths: list[str]) -> None:
+    def init_directory(self, repo_paths: list[str], *, spec_content: str | None = None) -> None:
         """Create the full mission directory tree."""
         for d in [
             self.control_dir,
@@ -135,7 +135,7 @@ class Mission:
         self._write_mission_toml(repo_paths)
 
         # Create initial .ai files
-        self._init_ai_files(repo_paths)
+        self._init_ai_files(repo_paths, spec_content=spec_content)
 
         # Place CLAUDE.md files for orchestrator and workers
         self._place_claude_md_files(repo_paths)
@@ -176,11 +176,14 @@ repos = [
 """
         self.mission_toml_path.write_text(content)
 
-    def _init_ai_files(self, repo_paths: list[str]) -> None:
+    def _init_ai_files(self, repo_paths: list[str], *, spec_content: str | None = None) -> None:
         repo_names = [Path(rp).name for rp in repo_paths]
 
         # spec.md
-        (self.ai_dir / "spec.md").write_text(f"""\
+        if spec_content:
+            (self.ai_dir / "spec.md").write_text(spec_content)
+        else:
+            (self.ai_dir / "spec.md").write_text(f"""\
 # Mission Specification
 
 **Mission ID**: {self.mission_id}
@@ -268,12 +271,13 @@ tasks: []
 
     def _clone_repos(self, repo_paths: list[str]) -> None:
         """Clone each repo into the mission's repos/ directory."""
+        branch = f"mission/{self.mission_id}"
         for rp in repo_paths:
             p = Path(rp).resolve()
             dest = self.repos_dir / p.name
             if dest.exists():
                 continue
-            clone_local(str(p), str(dest))
+            clone_local(str(p), str(dest), branch=branch)
 
     # --- Event log access ---
 

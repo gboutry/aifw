@@ -106,3 +106,30 @@ def test_repo_status_dirty_with_unpushed(tmp_path: Path) -> None:
     status = repo_status(str(dest))
     assert status.dirty is True
     assert len(status.unpushed) > 0
+
+
+def test_clone_local_with_branch(tmp_path: Path) -> None:
+    origin = _init_repo(tmp_path / "origin6")
+    dest = tmp_path / "clone6"
+
+    clone_local(str(origin), str(dest), branch="mission/test-001")
+
+    assert dest.exists()
+    result = subprocess.run(
+        ["git", "-C", str(dest), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True, check=True,
+    )
+    assert result.stdout.strip() == "mission/test-001"
+
+
+def test_clone_local_without_branch_stays_on_default(tmp_path: Path) -> None:
+    origin = _init_repo(tmp_path / "origin7")
+    dest = tmp_path / "clone7"
+
+    clone_local(str(origin), str(dest))
+
+    result = subprocess.run(
+        ["git", "-C", str(dest), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True, check=True,
+    )
+    assert result.stdout.strip() in ("main", "master")

@@ -195,7 +195,9 @@ def test_check_unpushed_clean(tmp_path: Path) -> None:
     result = mission.check_unpushed()
     status = result["repo-a"]
     assert status.dirty is False
-    assert status.unpushed == []
+    # The mission branch has no remote tracking branch (local-only clone),
+    # so it is reported as unpushed. No uncommitted changes though.
+    assert status.unpushed == ["mission/test-up1"]
 
 
 def test_check_unpushed_dirty(tmp_path: Path) -> None:
@@ -209,3 +211,39 @@ def test_check_unpushed_dirty(tmp_path: Path) -> None:
 
     result = mission.check_unpushed()
     assert result["repo-a2"].dirty is True
+
+
+def test_clones_on_mission_branch(tmp_path: Path) -> None:
+    config = _make_config(tmp_path)
+    repo_a = _init_git_repo(tmp_path / "repo-a3")
+
+    mission = Mission("20260329-xyz1", config)
+    mission.init_directory([str(repo_a)])
+
+    clone = mission.repos_dir / "repo-a3"
+    result = subprocess.run(
+        ["git", "-C", str(clone), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True, check=True,
+    )
+    assert result.stdout.strip() == "mission/20260329-xyz1"
+
+
+def test_init_directory_with_spec_content(tmp_path: Path) -> None:
+    config = _make_config(tmp_path)
+
+    mission = Mission("test-spec", config)
+    mission.init_directory([], spec_content="# My Objective\n\nBuild the auth system.")
+
+    spec = (mission.ai_dir / "spec.md").read_text()
+    assert "My Objective" in spec
+    assert "Build the auth system" in spec
+
+
+def test_init_directory_without_spec_content_uses_template(tmp_path: Path) -> None:
+    config = _make_config(tmp_path)
+
+    mission = Mission("test-nospec", config)
+    mission.init_directory([])
+
+    spec = (mission.ai_dir / "spec.md").read_text()
+    assert "Define the mission objective here" in spec

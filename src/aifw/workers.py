@@ -134,6 +134,8 @@ def assign_worker(
     worker_name: str,
     task: str,
     repo_path: str | None = None,
+    *,
+    model: str = "",
 ) -> None:
     """Assign a task to a worker.
 
@@ -171,6 +173,7 @@ def assign_worker(
         "summary": "Assignment received, ready to start",
         "blockers": [],
         "repo": repo_path,
+        "model": model,
     }
     status_path = mission.ai_dir / "status" / f"{worker_name}.json"
     status_path.write_text(json.dumps(status_data, indent=2) + "\n")
@@ -197,6 +200,7 @@ def assign_worker(
             worker_name,
             working_dir=repo_path,
             initial_prompt=prompt,
+            model=model,
         )
 
 

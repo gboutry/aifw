@@ -63,3 +63,15 @@ def test_mission_root_is_path(tmp_path: Path) -> None:
 def test_container_home(tmp_path: Path) -> None:
     config = load_config(tmp_path / "nonexistent.toml")
     assert config.container_home == "/home/ubuntu"
+
+
+def test_default_model_empty_by_default(tmp_path: Path) -> None:
+    config = load_config(tmp_path / "nonexistent.toml")
+    assert config.default_model == ""
+
+
+def test_default_model_from_file(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('default_model = "sonnet"')
+    config = load_config(config_file)
+    assert config.default_model == "sonnet"

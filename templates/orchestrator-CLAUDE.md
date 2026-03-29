@@ -78,11 +78,18 @@ Create `.ai/status/<worker-name>.json`:
   "updated": "<ISO timestamp>",
   "summary": "Assignment received, ready to start",
   "blockers": [],
-  "repo": "<absolute repo path>"
+  "repo": "<absolute repo path>",
+  "model": "sonnet"
 }
 ```
 
 That's it. The dispatch watcher handles the rest.
+
+### Model selection
+
+The `model` field in the status JSON controls which Claude model the worker uses. Valid values: `sonnet`, `opus`, `haiku`, or empty string for the default. The dispatch watcher reads this field when spawning the worker session and passes it as `--model` to Claude Code.
+
+Use cheaper models (sonnet, haiku) for mechanical tasks. Use opus for complex architecture or debugging work.
 
 ### To re-assign a worker
 

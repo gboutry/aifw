@@ -57,6 +57,8 @@ def launch_worker_session(
     worker_name: str,
     working_dir: str,
     initial_prompt: str | None = None,
+    *,
+    model: str = "",
 ) -> None:
     """Launch a Claude Code session for a worker in a tmux window.
 
@@ -70,8 +72,11 @@ def launch_worker_session(
     """
     window_name = f"w-{worker_name}"
 
-    # Build claude args — use --print for non-interactive or just bare claude
     claude_args = ""
+    if model:
+        claude_args = f"--model {model}"
+    elif config.default_model:
+        claude_args = f"--model {config.default_model}"
     create_worker_window(
         config, session_name, container_name, worker_name,
         cwd=working_dir,

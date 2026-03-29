@@ -52,9 +52,14 @@ def _run_git(
         raise GitError(f"git {' '.join(args)} timed out") from exc
 
 
-def clone_local(source: str, dest: str) -> None:
-    """Clone a repo using --local for hardlinked objects."""
+def clone_local(source: str, dest: str, *, branch: str | None = None) -> None:
+    """Clone a repo using --local for hardlinked objects.
+
+    If branch is provided, create and checkout that branch after cloning.
+    """
     _run_git(["clone", "--local", source, dest])
+    if branch:
+        _run_git(["checkout", "-b", branch], cwd=dest)
 
 
 def has_uncommitted(repo_path: str) -> bool:

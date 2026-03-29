@@ -40,9 +40,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # start
     p_start = sub.add_parser("start", help="Create a mission and launch the control plane")
-    p_start.add_argument("repos", nargs="+", help="Paths to repositories")
-    p_start.add_argument("--id", dest="mission_id", default=None, help="Custom mission ID")
+    p_start.add_argument("repos", nargs="*", default=[], help="Paths to repositories")
+    p_start.add_argument("--id", dest="mission_id", default=None, help="Custom mission ID (or resume existing)")
     p_start.add_argument("--no-attach", action="store_true", help="Don't attach to tmux after start")
+    p_start.add_argument("--orchestrator-model", default="", help="Model for the orchestrator session")
+    p_start.add_argument("--spec", dest="spec_file", default=None, help="Path to mission spec file")
+    p_start.add_argument("--objective", default=None, help="Inline mission objective text")
 
     # status
     sub.add_parser("status", help="Show mission overview")
@@ -63,6 +66,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_assign.add_argument("worker", help="Worker name")
     p_assign.add_argument("task", help="Task description or path to a task file")
     p_assign.add_argument("--repo", default=None, help="Repository path for this worker")
+    p_assign.add_argument("--model", default="", help="Claude model for this worker (e.g. sonnet, opus)")
 
     # tail
     p_tail = sub.add_parser("tail", help="Stream worker status and events")
@@ -82,53 +86,81 @@ def cmd_start(args: argparse.Namespace) -> None:
     setup_stderr_logging(config.log_level)
 
     from aifw.mission import Mission, generate_mission_id
+    from aifw.tmux import session_exists
 
-    # Resolve repo paths
-    repo_paths = [str(Path(r).resolve()) for r in args.repos]
-    for rp in repo_paths:
-        if not Path(rp).is_dir():
-            print(f"Error: repository path does not exist: {rp}", file=sys.stderr)
+    # Validate --spec and --objective are mutually exclusive
+    if args.spec_file and args.objective:
+        print("Error: --spec and --objective are mutually exclusive.", file=sys.stderr)
+        sys.exit(1)
+
+    # Resolve spec content
+    spec_content: str | None = None
+    if args.spec_file:
+        spec_path = Path(args.spec_file)
+        if not spec_path.is_file():
+            print(f"Error: spec file does not exist: {spec_path}", file=sys.stderr)
             sys.exit(1)
+        spec_content = spec_path.read_text()
+    elif args.objective:
+        spec_content = f"# Mission Objective\n\n{args.objective}\n"
 
-    # Create mission
     mission_id = args.mission_id or generate_mission_id()
     mission = Mission(mission_id, config)
 
     if mission.exists():
-        print(f"Mission {mission_id} already exists. Reusing.", file=sys.stderr)
+        # Resume mode
+        if args.repos:
+            print(f"Warning: repos ignored when resuming mission {mission_id}", file=sys.stderr)
+        print(f"Resuming mission {mission_id} ...")
     else:
+        # New mission — repos required
+        if not args.repos:
+            print("Error: repos are required for a new mission (or use --id to resume).", file=sys.stderr)
+            sys.exit(1)
+        repo_paths = [str(Path(r).resolve()) for r in args.repos]
+        for rp in repo_paths:
+            if not Path(rp).is_dir():
+                print(f"Error: repository path does not exist: {rp}", file=sys.stderr)
+                sys.exit(1)
         print(f"Creating mission {mission_id} ...")
-        mission.init_directory(repo_paths)
+        mission.init_directory(repo_paths, spec_content=spec_content)
 
-    # Provision container
+    # Provision container (idempotent)
     print(f"Provisioning container {mission.container_name} ...")
     mission.provision_container()
 
-    # Set up tmux control plane
+    # Set up tmux control plane (skip if session exists — just attach)
+    from aifw.tmux import setup_control_plane, attach_session
+    if session_exists(config, mission.tmux_session):
+        print(f"tmux session {mission.tmux_session} exists, attaching ...")
+        if not args.no_attach:
+            attach_session(config, mission.tmux_session)
+        return
+
     print(f"Setting up tmux session {mission.tmux_session} ...")
-    from aifw.tmux import setup_control_plane
     clone_paths = list(mission.clone_paths().values())
+
+    initial_prompt: str | None = None
+    if spec_content:
+        initial_prompt = "Read the mission spec at .ai/spec.md and begin planning."
+
     setup_control_plane(
         config,
         mission.tmux_session,
         mission.container_name,
         str(mission.root),
         clone_paths,
+        orchestrator_model=args.orchestrator_model,
+        initial_prompt=initial_prompt,
     )
 
     print(f"\nMission {mission_id} is ready.")
     print(f"  Directory:  {mission.root}")
     print(f"  Container:  {mission.container_name}")
     print(f"  tmux:       {mission.tmux_session}")
-    print(f"\nNext steps:")
-    print(f"  aifw assign <worker> <task>   — assign work to a worker")
-    print(f"  aifw status                   — check mission status")
-    print(f"  aifw attach                   — attach to tmux session")
 
-    # Attach unless --no-attach
     if not args.no_attach:
         print(f"\nAttaching to tmux session ...")
-        from aifw.tmux import attach_session
         attach_session(config, mission.tmux_session)
 
 
@@ -238,7 +270,7 @@ def cmd_assign(args: argparse.Namespace) -> None:
         print("No active mission found.", file=sys.stderr)
         sys.exit(1)
 
-    assign_worker(config, mission, args.worker, args.task, args.repo)
+    assign_worker(config, mission, args.worker, args.task, args.repo, model=args.model)
     print(f"Assigned '{args.worker}' — brief at {mission.ai_dir / 'workers' / f'{args.worker}.md'}")
 
 

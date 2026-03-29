@@ -44,6 +44,7 @@ _DEFAULTS: dict[str, Any] = {
     "claude_auth_host_path": str(_home() / ".claude.json"),
     "claude_config_container_path": "/home/ubuntu/.claude",
     "claude_auth_container_path": "/home/ubuntu/.claude.json",
+    "default_model": "",
     # Repos
     "repo_strategy": "checkout",  # "checkout" or "worktree"
     # Logging
@@ -77,6 +78,7 @@ class Config:
     claude_auth_host_path: Path
     claude_config_container_path: str
     claude_auth_container_path: str
+    default_model: str
     repo_strategy: str
     log_level: str
     overview_interval: int
@@ -130,6 +132,7 @@ def load_config(config_path: Path | None = None) -> Config:
         claude_auth_host_path=Path(resolved["claude_auth_host_path"]),
         claude_config_container_path=str(resolved["claude_config_container_path"]),
         claude_auth_container_path=str(resolved["claude_auth_container_path"]),
+        default_model=str(resolved["default_model"]),
         repo_strategy=str(resolved["repo_strategy"]),
         log_level=str(resolved["log_level"]),
         overview_interval=int(resolved["overview_interval"]),

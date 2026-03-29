@@ -56,6 +56,18 @@ def _read_worker_repo(ai_dir: Path, worker_name: str) -> str | None:
     return None
 
 
+def _read_worker_model(ai_dir: Path, worker_name: str) -> str:
+    """Try to extract the model from the worker's status file."""
+    status_file = ai_dir / "status" / f"{worker_name}.json"
+    if status_file.exists():
+        try:
+            data = json.loads(status_file.read_text())
+            return data.get("model", "")
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return ""
+
+
 def _build_initial_prompt(brief_path: Path) -> str:
     return (
         f"Read your worker brief at {brief_path} and follow the instructions. "
@@ -107,9 +119,14 @@ def run_dispatch_loop(
                         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
                         print(f"[dispatch {ts}] New worker: {worker_name} → spawning session (cwd={cwd})")
 
+                        model = _read_worker_model(ai_dir, worker_name)
+                        claude_args = f"--model {model}" if model else ""
+                        if not claude_args and config.default_model:
+                            claude_args = f"--model {config.default_model}"
                         create_worker_window(
                             config, tmux_session, container_name, worker_name,
                             cwd=cwd,
+                            claude_args=claude_args,
                         )
                         # Give Claude Code a moment to start
                         time.sleep(3)
@@ -141,9 +158,14 @@ def run_dispatch_loop(
                         repo = _read_worker_repo(ai_dir, worker_name)
                         cwd = repo or str(mission_dir)
 
+                        model = _read_worker_model(ai_dir, worker_name)
+                        claude_args = f"--model {model}" if model else ""
+                        if not claude_args and config.default_model:
+                            claude_args = f"--model {config.default_model}"
                         create_worker_window(
                             config, tmux_session, container_name, worker_name,
                             cwd=cwd,
+                            claude_args=claude_args,
                         )
                         time.sleep(3)
                         prompt = _build_initial_prompt(brief_path)

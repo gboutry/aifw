@@ -205,6 +205,9 @@ def setup_control_plane(
     container_name: str,
     mission_dir: str,
     repo_paths: list[str],
+    *,
+    orchestrator_model: str = "",
+    initial_prompt: str | None = None,
 ) -> None:
     """Create the full tmux layout for a mission.
 
@@ -237,12 +240,22 @@ def setup_control_plane(
 
     # Orchestrator window: Claude Code in the container at mission .ai dir
     create_window(config, session_name, "orchestrator", start_dir=mission_dir)
+    orch_claude_cmd = config.claude_bin
+    orch_model = orchestrator_model or config.default_model
+    if orch_model:
+        orch_claude_cmd = f"{orch_claude_cmd} --model {orch_model}"
     orchestrator_cmd = _lxc_exec_string(
         container_name, config.lxd_container_user,
         cwd=f"{mission_dir}/.ai",
-        command=f"{config.claude_bin}",
+        command=orch_claude_cmd,
     )
     send_command(config, session_name, "orchestrator", orchestrator_cmd)
+
+    # Send initial prompt to orchestrator if provided
+    if initial_prompt:
+        import time
+        time.sleep(3)
+        send_keys(config, session_name, "orchestrator", initial_prompt, enter=True)
 
     # Git window: shell in container
     create_window(config, session_name, "git", start_dir=mission_dir)

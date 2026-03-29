@@ -142,3 +142,29 @@ def test_list_workers_after_assign(mock_launch, tmp_path: Path) -> None:
     assert len(workers) == 2
     names = {w["worker"] for w in workers}
     assert names == {"w1", "w2"}
+
+
+@mock.patch("aifw.workers.launch_worker_session")
+def test_assign_worker_with_model(mock_launch, tmp_path: Path) -> None:
+    config, mission = _make_mission(tmp_path)
+    repo_a = str(tmp_path / "repo-a")
+
+    assign_worker(config, mission, "epsilon", "A task", repo_a, model="sonnet")
+
+    status = json.loads((mission.ai_dir / "status" / "epsilon.json").read_text())
+    assert status["model"] == "sonnet"
+
+    mock_launch.assert_called_once()
+    _, kwargs = mock_launch.call_args
+    assert kwargs.get("model") == "sonnet"
+
+
+@mock.patch("aifw.workers.launch_worker_session")
+def test_assign_worker_without_model(mock_launch, tmp_path: Path) -> None:
+    config, mission = _make_mission(tmp_path)
+    repo_a = str(tmp_path / "repo-a")
+
+    assign_worker(config, mission, "zeta", "A task", repo_a)
+
+    status = json.loads((mission.ai_dir / "status" / "zeta.json").read_text())
+    assert status.get("model") == ""

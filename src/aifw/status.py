@@ -98,7 +98,9 @@ def show_status(config: Config, mission_id: str | None = None) -> None:
             name = w.get("worker", "?")
             summary = w.get("summary", "")
             repo = Path(w.get("repo", "")).name if w.get("repo") else ""
-            out.write(f"    {icon} {name:<16s} [{status:<12s}] {repo:<20s} {summary}\n")
+            model = w.get("model", "")
+            model_str = f"({model}) " if model else ""
+            out.write(f"    {icon} {name:<16s} [{status:<12s}] {model_str}{repo:<20s} {summary}\n")
 
     # Recent events
     events = mission.ensure_events()
